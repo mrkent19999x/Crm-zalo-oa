@@ -20,7 +20,7 @@ load_dotenv()
 
 app = Flask(__name__, static_folder='../frontend', static_url_path='')
 CORS(app, resources={r"/api/*": {"origins": "*"}})
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Configuration
 SECRET_KEY = os.getenv('SECRET_KEY', 'zalo-oa-finance-secret-key-2025')
@@ -767,6 +767,27 @@ def advance_workflow(current_user, lead_id):
     
     return jsonify(workflow)
 
+# ======================= HEALTH CHECK =======================
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'Zalo OA Finance Workflow',
+        'version': '1.0.0',
+        'timestamp': datetime.now().isoformat(),
+        'modules': {
+            'auth': 'active',
+            'leads': 'active',
+            'zalo': 'demo_mode',
+            'documents': 'active',
+            'notifications': 'active',
+            'analytics': 'active',
+            'workflows': 'active'
+        }
+    })
+
 # ======================= STATIC FILES =======================
 
 @app.route('/')
@@ -849,4 +870,4 @@ if __name__ == '__main__':
     print(f"Default login: admin / admin123")
     print("=" * 50)
     
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
