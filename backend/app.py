@@ -24,8 +24,21 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Configuration
 SECRET_KEY = os.getenv('SECRET_KEY', 'zalo-oa-finance-secret-key-2025')
-ZALO_OA_ID = os.getenv('ZALO_OA_ID', 'demo_oa_id_12345')
-ZALO_ACCESS_TOKEN = os.getenv('ZALO_ACCESS_TOKEN', 'demo_access_token')
+
+# Zalo OA - 2 accounts (Customer + Internal)
+ZALO_OA_KHACH_ID = os.getenv('ZALO_OA_KHACH_ID', '')  # OA for customers
+ZALO_OA_KHACH_TOKEN = os.getenv('ZALO_OA_KHACH_TOKEN', '')
+ZALO_OA_NOIBI_ID = os.getenv('ZALO_OA_NOIBI_ID', '')  # OA for internal staff
+ZALO_OA_NOIBI_TOKEN = os.getenv('ZALO_OA_NOIBI_TOKEN', '')
+
+# Demo mode warning
+DEMO_MODE = not all([ZALO_OA_KHACH_ID, ZALO_OA_KHACH_TOKEN, ZALO_OA_NOIBI_ID, ZALO_OA_NOIBI_TOKEN])
+if DEMO_MODE:
+    print("\n⚠️  ═══════════════════════════════════════════════════")
+    print("⚠️  RUNNING IN DEMO MODE")
+    print("⚠️  Zalo OA credentials not configured in .env")
+    print("⚠️  System will use simulated responses")
+    print("⚠️  ═══════════════════════════════════════════════════\n")
 
 # In-memory database simulation
 DATABASE = {
@@ -56,27 +69,73 @@ DATABASE['users']['admin'] = {
     'created_at': datetime.now().isoformat()
 }
 
-# Predefined roles
+# Predefined roles - Updated for loan brokerage system
 ROLES = {
-    'quan_tri_vien': {
-        'name': 'Quản trị viên',
-        'permissions': ['all']
+    # Admin role
+    'admin': {
+        'name': 'Admin',
+        'permissions': ['all'],
+        'scope': 'all_leads',
+        'description': 'Toàn quyền quản lý hệ thống'
     },
+    'quan_tri_vien': {  # Alias for backward compatibility
+        'name': 'Quản trị viên',
+        'permissions': ['all'],
+        'scope': 'all_leads'
+    },
+    
+    # Assistant role
+    'tro_ly': {
+        'name': 'Trợ lý hệ thống',
+        'permissions': ['view_all', 'assign', 'monitor', 'report'],
+        'scope': 'all_leads',
+        'description': 'Giám sát, phân công hồ sơ'
+    },
+    
+    # Internal staff
+    'nhan_vien': {
+        'name': 'Nhân viên xử lý hồ sơ',
+        'permissions': ['view_assigned', 'update_status', 'upload_docs', 'fill_form'],
+        'scope': 'assigned_only',
+        'description': 'Xử lý hồ sơ được phân công'
+    },
+    'chuyen_vien_tu_van': {  # Alias
+        'name': 'Chuyên viên tư vấn',
+        'permissions': ['reply_chat', 'view_leads', 'update_lead_status', 'process_documents'],
+        'scope': 'assigned_only'
+    },
+    
+    # CTV/Collaborators
+    'ctv': {
+        'name': 'CTV/Cò',
+        'permissions': ['create_lead', 'upload_cccd', 'view_own_leads'],
+        'scope': 'own_only',
+        'description': 'Tạo lead, chỉ xem khách của mình'
+    },
+    
+    # Bank sales
+    'sale_ngan_hang': {
+        'name': 'Sale Ngân hàng',
+        'permissions': ['view_branch_leads', 'download_clean_docs', 'update_result'],
+        'scope': 'branch_only',
+        'description': 'Nhận hồ sơ sạch, cập nhật kết quả'
+    },
+    
+    # Other roles (backward compatibility)
     'soan_noi_dung': {
         'name': 'Soạn nội dung',
-        'permissions': ['manage_content', 'send_broadcast', 'reply_chat']
+        'permissions': ['manage_content', 'send_broadcast', 'reply_chat'],
+        'scope': 'all_leads'
     },
     'cskh': {
         'name': 'CSKH',
-        'permissions': ['reply_chat', 'view_leads', 'update_lead_status']
+        'permissions': ['reply_chat', 'view_leads', 'update_lead_status'],
+        'scope': 'all_leads'
     },
     'phan_tich_vien': {
         'name': 'Phân tích viên',
-        'permissions': ['view_analytics', 'export_reports']
-    },
-    'chuyen_vien_tu_van': {
-        'name': 'Chuyên viên tư vấn',
-        'permissions': ['reply_chat', 'view_leads', 'update_lead_status', 'process_documents']
+        'permissions': ['view_analytics', 'export_reports'],
+        'scope': 'all_leads'
     }
 }
 
@@ -237,19 +296,59 @@ def create_lead(current_user):
     lead_id = str(uuid.uuid4())[:8]
     
     lead = {
+        # Basic info
         'id': lead_id,
         'name': data.get('name', ''),
         'phone': data.get('phone', ''),
         'email': data.get('email', ''),
-        'source': data.get('source', 'zalo_oa'),
-        'product_interest': data.get('product_interest', ''),
-        'status': 'tiep_nhan',  # tiep_nhan, dang_xu_ly, cho_bo_sung, hoan_thanh
+        
+        # Source & assignment
+        'source': data.get('source', 'zalo_oa'),  # Nguồn lead: ctv_xxx, quang_cao, doi_tac
+        'branch': data.get('branch', ''),  # Chi nhánh ngân hàng: vpbank_hcm_q1
         'assigned_to': data.get('assigned_to', ''),
+        'created_by': current_user['id'],
+        
+        # Customer type & business info
+        'loai_hinh': data.get('loai_hinh', 'ca_nhan'),  # ca_nhan | ho_kinh_doanh | doanh_nghiep
+        'mst': data.get('mst', ''),  # Mã số thuế (nếu là DN/hộ KD)
+        'ten_doanh_nghiep': data.get('ten_doanh_nghiep', ''),
+        
+        # CCCD info (will be filled by OCR)
+        'so_cccd': data.get('so_cccd', ''),
+        'ngay_sinh': data.get('ngay_sinh', ''),
+        'dia_chi': data.get('dia_chi', ''),
+        
+        # Loan info
+        'loai_vay': data.get('loai_vay', ''),  # tin_chap | the_chap | sme
+        'so_tien_vay': data.get('so_tien_vay', 0),
+        'thoi_han': data.get('thoi_han', 12),  # tháng
+        'muc_dich_vay': data.get('muc_dich_vay', ''),
+        'thu_nhap_thang': data.get('thu_nhap_thang', 0),
+        
+        # Risk assessment (will be calculated)
+        'dti_ratio': data.get('dti_ratio'),  # Debt-to-Income ratio
+        'risk_level': data.get('risk_level'),  # thap | trung_binh | cao
+        'mst_status': data.get('mst_status'),  # Hoạt động | Ngừng | Giải thể
+        
+        # Legacy fields (backward compatibility)
+        'product_interest': data.get('product_interest', ''),
         'labels': data.get('labels', []),
         'notes': data.get('notes', ''),
+        
+        # Status & workflow
+        'status': 'tiep_nhan',  # tiep_nhan, dang_xu_ly, cho_bo_sung, hoan_thanh
+        
+        # Visibility control (who can see this lead)
+        'visibility': {
+            'ctv': [current_user['id']] if current_user['role'] == 'ctv' else [],
+            'staff': [data.get('assigned_to')] if data.get('assigned_to') else [],
+            'bank': [],
+            'admin': True
+        },
+        
+        # Timestamps
         'created_at': datetime.now().isoformat(),
-        'updated_at': datetime.now().isoformat(),
-        'created_by': current_user['id']
+        'updated_at': datetime.now().isoformat()
     }
     
     DATABASE['leads'][lead_id] = lead
