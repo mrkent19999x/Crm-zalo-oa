@@ -1,0 +1,185 @@
+# CURSOR RULES - Hệ Thống Tư Vấn Vay Vốn
+
+## MỤC ĐÍCH
+Chuyển đổi repo demo thành hệ thống môi giới vay vốn thực tế cho VPBank
+
+## QUY TẮC BẮT BUỘC
+
+### 1. ĐỌC FILE NÀY TRƯỚC
+- `SPECIFICATION.md` - Đặc tả đầy đủ
+- `AUDIT_REPORT.md` - Kết quả rà soát
+
+### 2. KHI GENERATE CODE
+
+**✅ LUÔN:**
+- Code tiếng Anh, comment tiếng Việt
+- Follow Python PEP 8
+- Xử lý errors đầy đủ (try/except)
+- Log mọi thao tác quan trọng
+- Validate input từ user
+
+**❌ KHÔNG BAO GIỜ:**
+- Hard-code credentials
+- Dùng `print()` (dùng `logging`)
+- Commit file `.env`
+- Code không có docstring
+- Dùng `SELECT *` trong SQL
+
+### 3. STRUCTURE
+
+**File mới phải ở đúng folder:**
+```
+backend/integrations/ → Zalo OA, Google Sheets
+backend/services/     → OCR, MST, Form, Risk, Assignment
+backend/templates/    → Word templates
+config/              → .env, credentials
+```
+
+### 4. PHÂN QUYỀN
+
+**5 vai trò:**
+- admin: Toàn quyền
+- tro_ly: Xem tất cả, phân công
+- nhan_vien: Chỉ xem được giao
+- ctv: Chỉ xem của mình
+- sale_ngan_hang: Chỉ xem chi nhánh mình
+
+**Check quyền:**
+```python
+def can_view_lead(user, lead):
+    if user['role'] == 'admin': return True
+    if user['role'] == 'ctv': 
+        return lead['created_by'] == user['id']
+    if user['role'] == 'nhan_vien':
+        return lead['assigned_to'] == user['id']
+    if user['role'] == 'sale_ngan_hang':
+        return lead['branch'] == user['branch']
+    return False
+```
+
+### 5. API RESPONSE FORMAT
+
+```python
+# Success
+{
+    "success": true,
+    "data": {...},
+    "message": "Thành công"
+}
+
+# Error
+{
+    "success": false,
+    "error": "Mô tả lỗi",
+    "code": "ERROR_CODE"
+}
+```
+
+### 6. LOGGING
+
+```python
+import logging
+
+logging.info("Lead #HS12345 được tạo bởi CTV A")
+logging.warning("OCR thất bại cho CCCD 001234567890")
+logging.error("Không thể kết nối Zalo OA", exc_info=True)
+```
+
+### 7. ENV VARIABLES
+
+**Không bao giờ default là demo:**
+```python
+# ❌ SAI
+ZALO_OA_ID = os.getenv('ZALO_OA_ID', 'demo_id')
+
+# ✅ ĐÚNG
+ZALO_OA_ID = os.getenv('ZALO_OA_ID')
+if not ZALO_OA_ID:
+    raise ValueError("ZALO_OA_ID is required in .env")
+```
+
+### 8. DOCSTRING
+
+```python
+def extract_cccd(self, image_path):
+    """
+    Trích xuất thông tin từ ảnh CCCD
+    
+    Args:
+        image_path (str): Đường dẫn đến file ảnh
+    
+    Returns:
+        dict: {
+            'so_cccd': str,
+            'ho_ten': str,
+            'ngay_sinh': str,
+            'dia_chi': str
+        }
+    
+    Raises:
+        OCRException: Nếu không đọc được ảnh
+    """
+    pass
+```
+
+### 9. LEAD MODEL
+
+**Bắt buộc có đủ fields:**
+```python
+{
+    'id', 'created_by', 'assigned_to', 'source', 'branch',
+    'ho_ten', 'so_cccd', 'phone', 'dia_chi',
+    'loai_hinh', 'mst', 'loai_vay', 'so_tien_vay',
+    'thoi_han', 'thu_nhap_thang', 'dti_ratio', 'risk_level',
+    'visibility', 'status', 'workflow_steps',
+    'created_at', 'updated_at'
+}
+```
+
+### 10. WORKFLOW STEPS
+
+**Đúng thứ tự:**
+1. tiep_nhan
+2. phan_loai
+3. tu_van
+4. xu_ly_ho_so
+5. phe_duyet
+6. hoan_thanh
+
+---
+
+## KHI SỬA CODE CŨ
+
+1. Đọc `AUDIT_REPORT.md` Section II
+2. Sửa từng mục theo thứ tự
+3. Test sau mỗi thay đổi
+4. Commit với message rõ ràng
+
+## KHI TẠO CODE MỚI
+
+1. Đọc `SPECIFICATION.md` Section tương ứng
+2. Tạo file ở đúng folder
+3. Implement đầy đủ error handling
+4. Thêm test case (nếu có thời gian)
+5. Update `requirements.txt` nếu dùng lib mới
+
+## PRIORITIES
+
+🔴 CAO - Làm trước:
+- Phân quyền & vai trò
+- Zalo OA real integration
+- OCR CCCD
+- Check MST
+
+🟡 TRUNG BÌNH - Làm sau:
+- Phân công tự động
+- Tính DTI
+- Báo cáo
+
+🟢 THẤP - Optional:
+- UI enhancements
+- Advanced analytics
+
+---
+
+**ĐỌC FILE NÀY MỖI LẦN TRƯỚC KHI CODE!**
